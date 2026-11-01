@@ -36,27 +36,32 @@ func (t tokenProviderStub) Claims(_ context.Context) (domain.TokenClaims, error)
 	return t.claims, nil
 }
 
+var defaultBuilds = domain.RecommendedBuilds{
+	Role: 4,
+	Builds: []domain.RecommendedBuild{{
+		Tier:    0,
+		Winrate:  52.3,
+		Runes: &domain.BuildRunes{
+			PrimaryTree:    domain.RuneStyleResolve,
+			SecondaryTree: domain.RuneStyleSorcery,
+			// real payload shape: 6 runes + 3 shards, the 9 perks the LCU requires
+			SelectedRunes:  []int{domain.RuneKeystoneGraspOfTheUndying, 8446, 8444, 8451, 8224, 8233},
+			SelectedShards: []int{5008, 5008, 5002},
+		},
+		ItemBlocks: []domain.BuildBlock{
+			{Type: domain.BlockStarter, Items: []domain.BuildBlockItem{{ItemID: 1055}}},
+		},
+	}},
+	SpellDuos: []domain.SpellDuo{{SpellIDs: []int{4, 14}}},
+}
+
 type coachlessStub struct {
 	mu              sync.Mutex
 	getPatchesCalls int
 	patches         []domain.PatchInfo
-	treePlaycount   []domain.RuneTreePlaycount
-	primaryRunes    *domain.RuneStatsByRow
-	secondaryRunes  *domain.RuneStatsByRow
-	shards          *domain.ShardStats
-	keystoneCalls   []domain.KeystoneRequest
-	treeCalls       []domain.SecondaryTreePlaycountRequest
-	runeCalls       []domain.RuneStatsRequest
-	shardCalls      []domain.ShardStatsRequest
-	spellCalls      []domain.SummonerSpellStatsRequest
-	itemCalls       []domain.ItemStatsRequest
-	itemStats       []domain.ItemStat
-	keystoneErr     error
-	treeErr         error
-	runeErr         error
-	shardErr        error
-	spellErr        error
-	itemErr         error
+	buildsReq       *domain.RecommendedBuildsRequest
+	builds          *domain.RecommendedBuilds
+	buildsErr       error
 }
 
 func (c *coachlessStub) Refresh(_ context.Context, _ string) (domain.TokenPair, error) {
@@ -75,122 +80,19 @@ func (c *coachlessStub) GetPatches(_ context.Context, _ string) ([]domain.PatchI
 	return []domain.PatchInfo{{Label: "16.7", Major: 16, Patch: 7}}, nil
 }
 
-func (c *coachlessStub) GetKeystoneData(_ context.Context, _ string, req domain.KeystoneRequest) ([]domain.KeystoneStat, error) {
+func (c *coachlessStub) GetRecommendedBuilds(_ context.Context, _ string, req domain.RecommendedBuildsRequest) (domain.RecommendedBuilds, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.keystoneCalls = append(c.keystoneCalls, req)
-	err := c.keystoneErr
-	if err != nil {
-		return nil, err
+	c.buildsReq = &req
+	if c.buildsErr != nil {
+		return domain.RecommendedBuilds{}, c.buildsErr
+	}
+	if c.builds != nil {
+		return *c.builds, nil
 	}
 
-	return []domain.KeystoneStat{{Rune: 8437, WPAOverall: 1.4, Occurrence: 1000}}, nil
-}
-
-func (c *coachlessStub) GetSecondaryTreePlaycount(_ context.Context, _ string, req domain.SecondaryTreePlaycountRequest) ([]domain.RuneTreePlaycount, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.treeCalls = append(c.treeCalls, req)
-	if c.treeErr != nil {
-		return nil, c.treeErr
-	}
-	if c.treePlaycount != nil {
-		return slices.Clone(c.treePlaycount), nil
-	}
-
-	return []domain.RuneTreePlaycount{
-		{Tree: domain.RuneStyleSorcery, Occurrence: 900},
-		{Tree: domain.RuneStylePrecision, Occurrence: 500},
-	}, nil
-}
-
-func (c *coachlessStub) GetRuneStatsForKeystoneAndTree(_ context.Context, _ string, req domain.RuneStatsRequest) (domain.RuneStatsByRow, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.runeCalls = append(c.runeCalls, req)
-	if c.runeErr != nil {
-		return domain.RuneStatsByRow{}, c.runeErr
-	}
-
-	switch req.TreeToLoad {
-	case domain.RuneStyleResolve:
-		if c.primaryRunes != nil {
-			return *c.primaryRunes, nil
-		}
-		return domain.RuneStatsByRow{
-			RowOnes:   []domain.RuneStat{{Rune: 8446, WPAOverall: 0.9, Occurrence: 1000}},
-			RowTwos:   []domain.RuneStat{{Rune: 8444, WPAOverall: 0.8, Occurrence: 1000}},
-			RowThrees: []domain.RuneStat{{Rune: 8451, WPAOverall: 0.7, Occurrence: 1000}},
-		}, nil
-	case domain.RuneStyleSorcery:
-		if c.secondaryRunes != nil {
-			return *c.secondaryRunes, nil
-		}
-		return domain.RuneStatsByRow{
-			RowOnes:   []domain.RuneStat{{Rune: 8224, WPAOverall: 0.6, Occurrence: 1000}},
-			RowTwos:   []domain.RuneStat{{Rune: 8233, WPAOverall: 0.9, Occurrence: 1000}},
-			RowThrees: []domain.RuneStat{{Rune: 8237, WPAOverall: 0.5, Occurrence: 1000}},
-		}, nil
-	default:
-		return domain.RuneStatsByRow{}, nil
-	}
-}
-
-func (c *coachlessStub) GetShardStatsForKeystoneAndTree(_ context.Context, _ string, req domain.ShardStatsRequest) (domain.ShardStats, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.shardCalls = append(c.shardCalls, req)
-	if c.shardErr != nil {
-		return domain.ShardStats{}, c.shardErr
-	}
-	if c.shards != nil {
-		return *c.shards, nil
-	}
-
-	return domain.ShardStats{
-		Offense: []domain.RuneStat{{Rune: 5008, WPAOverall: 0.5, Occurrence: 1000}},
-		Flex:    []domain.RuneStat{{Rune: 5008, WPAOverall: 0.4, Occurrence: 1000}},
-		Defense: []domain.RuneStat{{Rune: 5002, WPAOverall: 0.3, Occurrence: 1000}},
-	}, nil
-}
-
-func (c *coachlessStub) GetSummonerSpellStats(_ context.Context, _ string, req domain.SummonerSpellStatsRequest) ([]domain.SummonerSpellStat, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.spellCalls = append(c.spellCalls, req)
-	err := c.spellErr
-	if err != nil {
-		return nil, err
-	}
-
-	return []domain.SummonerSpellStat{
-		{SummonerSpell: 4, WPAOverall: 0.8, Occurrence: 500},
-		{SummonerSpell: 14, WPAOverall: 0.7, Occurrence: 450},
-	}, nil
-}
-
-func (c *coachlessStub) GetItemStats(_ context.Context, _ string, req domain.ItemStatsRequest) ([]domain.ItemStat, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.itemCalls = append(c.itemCalls, req)
-	err := c.itemErr
-	if err != nil {
-		return nil, err
-	}
-	if c.itemStats != nil {
-		return slices.Clone(c.itemStats), nil
-	}
-
-	return []domain.ItemStat{
-		{ItemID: 1055, WPAOverall: 1.0, Occurrence: 900},
-		{ItemID: 1036, WPAOverall: 0.5, Occurrence: 600},
-	}, nil
+	return defaultBuilds, nil
 }
 
 type lcuStub struct {

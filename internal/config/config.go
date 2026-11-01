@@ -9,15 +9,14 @@ import (
 )
 
 type Config struct {
-	LogLevel       string               `yaml:"log_level"`
-	Coachless      CoachlessConfig      `yaml:"coachless"`
-	Auth           AuthConfig           `yaml:"auth"`
-	EnvFile        EnvFileConfig        `yaml:"env_file"`
-	Secrets        SecretsConfig        `yaml:"secrets"`
-	Recommendation RecommendationConfig `yaml:"recommendation"`
-	LCU            LCUConfig            `yaml:"lcu"`
-	Sync           SyncConfig           `yaml:"sync"`
-	Watch          WatchConfig          `yaml:"watch"`
+	LogLevel  string          `yaml:"log_level"`
+	Coachless CoachlessConfig `yaml:"coachless"`
+	Auth      AuthConfig      `yaml:"auth"`
+	EnvFile   EnvFileConfig   `yaml:"env_file"`
+	Secrets   SecretsConfig   `yaml:"secrets"`
+	LCU       LCUConfig       `yaml:"lcu"`
+	Sync      SyncConfig      `yaml:"sync"`
+	Watch     WatchConfig     `yaml:"watch"`
 }
 
 type CoachlessConfig struct {
@@ -37,12 +36,6 @@ type EnvFileConfig struct {
 
 type SecretsConfig struct {
 	ServiceName string `yaml:"service_name"`
-}
-
-type RecommendationConfig struct {
-	MinOccurrence int `yaml:"min_occurrence"`
-	TopItems      int `yaml:"top_items"`
-	TopSpells     int `yaml:"top_spells"`
 }
 
 type LCUConfig struct {
@@ -82,11 +75,6 @@ func Defaults() Config {
 		},
 		Secrets: SecretsConfig{
 			ServiceName: "lol-autobuild",
-		},
-		Recommendation: RecommendationConfig{
-			MinOccurrence: 1000,
-			TopItems:      10,
-			TopSpells:     2,
 		},
 		LCU: LCUConfig{
 			Enabled: false,
@@ -129,18 +117,6 @@ func (c Config) Validate() error {
 
 	if strings.TrimSpace(c.Secrets.ServiceName) == "" {
 		errs = append(errs, errors.New("secrets.service_name is required"))
-	}
-
-	if c.Recommendation.MinOccurrence < 0 {
-		errs = append(errs, errors.New("recommendation.min_occurrence must be >= 0"))
-	}
-
-	if c.Recommendation.TopItems < 0 {
-		errs = append(errs, errors.New("recommendation.top_items must be >= 0"))
-	}
-
-	if c.Recommendation.TopSpells <= 0 {
-		errs = append(errs, errors.New("recommendation.top_spells must be > 0"))
 	}
 
 	switch c.Sync.PatchAdditionsMode {

@@ -14,6 +14,15 @@ const (
 	RuneStyleResolve     = 8400
 )
 
+func IsStyle(styleID int) bool {
+	switch styleID {
+	case RuneStylePrecision, RuneStyleDomination, RuneStyleSorcery, RuneStyleInspiration, RuneStyleResolve:
+		return true
+	}
+
+	return false
+}
+
 const (
 	RuneKeystonePressTheAttack    = 8005
 	RuneKeystoneLethalTempo       = 8008

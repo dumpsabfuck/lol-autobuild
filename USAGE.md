@@ -9,8 +9,7 @@ For the short user guide, read [README.md](README.md). Portuguese version: [READ
 `lol-autobuild` runs a sync cycle that:
 
 - Detects your current champion and position from the local LCU champ select session.
-- Pulls Coachless patch, rune, summoner spell, and item stats.
-- Builds recommendations.
+- Pulls Coachless' recommended build (runes, summoner spells, and item blocks) for your champion and position.
 - Applies supported changes in LCU. Preview with `--dry-run` or `sync.dry_run: true`.
 
 ## Capability matrix
@@ -142,9 +141,6 @@ CLI `sync` and `watch` use `sync.dry_run` when you omit `--dry-run`. Pass `--dry
 | `auth.token_skew_seconds` | int | `30` | Token validity skew before expiry. |
 | `env_file.path` | string | `""` | Optional path to `.env` file loaded before bootstrap. |
 | `secrets.service_name` | string | `lol-autobuild` | OS keyring service name. |
-| `recommendation.min_occurrence` | int | `1000` | Minimum occurrence count for recommendation candidates. |
-| `recommendation.top_items` | int | `10` | Max recommended item count per block. `0` disables the limit. |
-| `recommendation.top_spells` | int | `2` | Max recommended spell count. |
 | `lcu.enabled` | bool | `false` | Enables LCU detection and apply paths. |
 | `lcu.lockfile_path` | string | `""` | Optional lockfile fallback path. |
 | `sync.patch` | string | `""` | Patch label used by the local UI. Empty means latest. |

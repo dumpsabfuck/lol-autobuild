@@ -15,11 +15,6 @@ env_file:
 secrets:
   service_name: lol-autobuild
 
-recommendation:
-  min_occurrence: 1_000
-  top_items: 10
-  top_spells: 2
-
 lcu:
   enabled: true
   lockfile_path: ""

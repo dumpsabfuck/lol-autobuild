@@ -207,3 +207,55 @@ func TestProcessLockfileCandidateRejectsRiotClient(t *testing.T) {
 		t.Fatal("expected Riot Client executable to be rejected")
 	}
 }
+
+func TestProcessCandidatesParsesArgsAndAddsLockfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeLockfile(t, filepath.Join(dir, "lockfile"), 61538)
+
+	candidates := processCandidates(14420, []string{
+		`"D:\Riot Games\League of Legends\LeagueClientUx.exe"`,
+		"--app-port=7777",
+		"--remoting-auth-token=abc",
+	}, filepath.Join(dir, "LeagueClientUx.exe"), nil)
+
+	if len(candidates) != 2 {
+		t.Fatalf("expected static + lockfile candidates, got %d", len(candidates))
+	}
+	if candidates[0].label() != "process:14420" {
+		t.Fatalf("unexpected static candidate label: %q", candidates[0].label())
+	}
+	if candidates[1].label() != "process:14420:lockfile" {
+		t.Fatalf("unexpected lockfile candidate label: %q", candidates[1].label())
+	}
+
+	info, err := candidates[0].resolve()
+	if err != nil || info.Port != 7777 || info.Password != "abc" {
+		t.Fatalf("unexpected static candidate info: %#v, %v", info, err)
+	}
+}
+
+func TestProcessCandidatesFallsBackToLockfileWhenArgsInvalid(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeLockfile(t, filepath.Join(dir, "lockfile"), 61538)
+
+	candidates := processCandidates(14420, []string{
+		`C:\Users\someone\AppData\Local\Temp\go-build\b001\exe\proccheck.exe`,
+		"--app-port=1",
+	}, filepath.Join(dir, "LeagueClientUx.exe"), nil)
+
+	if len(candidates) != 1 || candidates[0].label() != "process:14420:lockfile" {
+		t.Fatalf("expected only the process lockfile candidate, got %#v", candidates)
+	}
+
+	info, err := candidates[0].resolve()
+	if err != nil {
+		t.Fatalf("resolve lockfile candidate: %v", err)
+	}
+	if info.Port != 61538 || info.Password != "secret" {
+		t.Fatalf("unexpected lockfile info: %#v", info)
+	}
+}

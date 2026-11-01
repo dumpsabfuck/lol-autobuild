@@ -28,8 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `lcu.enabled` now gates champion and position detection plus apply operations.
 - LCU connection discovery now checks League process arguments first, then falls back to `lcu.lockfile_path`.
 - Position detection now supports queue IDs `400`, `420`, `440`, and `3110`.
-- Sync item recommendations now build ordered staged blocks (`Starter`, `1st Item`, `2nd Item`, `Boots`, `3rd Item`, `4th+ Item`) with per-block filtering.
-- Item filtering uses Coachless' default 1000-occurrence threshold. Blocks remain when filtering would remove all items, and `recommendation.top_items: 0` disables per-block truncation.
+- Sync item recommendations now come from a single Coachless `GetRecommendedBuilds` call. The applied item set mirrors the site's `Starter` / `Core build` / `Late Game` blocks (grouped labels like `Starter | Early Game`, `Core Build & Boots (In Order)`, `3rd Item`, `Late Game`, with ` (Choose One)` suffixes) instead of stat-derived blocks.
+- Runes and summoner spells now come from the same `GetRecommendedBuilds` response (builds[0], S-tier first). The recommend engine and its `recommendation.*` config keys are gone.
 - `lol-autobuild sync` and `lol-autobuild watch` read `sync.dry_run` when callers omit the flag.
 - `lol-autobuild watch` no longer syncs at startup. It syncs once per champ select when the session timer enters `FINALIZATION`.
 - Free Coachless users now default to the latest non-Premium patch and cannot request the newest Premium patch.
@@ -40,3 +40,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Removed `--champion-id` CLI flag.
 - Removed `--role` CLI flag.
+- Removed the `recommendation` config section (`min_occurrence`, `top_items`, `top_spells`) and the local recommendation engine; Coachless `GetRecommendedBuilds` now provides curated builds directly.
+
+### Fixed
+
+- LCU connection discovery now also offers the League process' own lockfile when process arguments cannot be parsed (some Windows setups return the caller's own command line for every process).

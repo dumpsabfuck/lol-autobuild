@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -40,183 +41,6 @@ func TestGetPatchesParsesResponse(t *testing.T) {
 
 	if len(patches) != 1 || patches[0].Label != "16.7" {
 		t.Fatalf("unexpected patches: %#v", patches)
-	}
-}
-
-func TestGetKeystoneDataSendsBody(t *testing.T) {
-	t.Parallel()
-
-	called := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-
-		var body apiKeystoneRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-
-		if len(body.CommonFilters.ChampionIDs) == 0 || body.CommonFilters.ChampionIDs[0] != 240 {
-			t.Fatalf("unexpected body: %#v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode([]apiKeystoneStat{{
-			Rune:       8010,
-			WPAOverall: 1.2,
-			Occurrence: 1000,
-		}})
-	}))
-	defer srv.Close()
-
-	var (
-		client = NewClient(srv.URL, 2*time.Second)
-		req    = domain.KeystoneRequest{
-			CommonFilters: domain.CommonFilters{
-				ChampionIDs: []int{240},
-				Role:        0,
-				Patch: domain.PatchFilter{
-					Major:          16,
-					Patch:          7,
-					PatchAdditions: 2,
-				},
-				LeagueTiers: []int{5, 6, 7},
-			},
-		}
-	)
-
-	stats, err := client.GetKeystoneData(context.Background(), "token", req)
-	if err != nil {
-		t.Fatalf("GetKeystoneData() error = %v", err)
-	}
-
-	if !called {
-		t.Fatal("expected handler call")
-	}
-
-	if len(stats) != 1 || stats[0].Rune != 8010 {
-		t.Fatalf("unexpected stats: %#v", stats)
-	}
-}
-
-func TestGetSecondaryTreePlaycountSendsBody(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/Rune/GetSecondaryTreePlaycount" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-
-		var body apiSecondaryTreePlaycountRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		if body.Tree != domain.RuneStylePrecision || body.Keystone != 8005 || body.CommonFilters.Role != 3 {
-			t.Fatalf("unexpected body: %#v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode([]apiRuneTreePlaycount{
-			{Tree: domain.RuneStyleSorcery, Occurrence: 1234},
-		})
-	}))
-	defer srv.Close()
-
-	client := NewClient(srv.URL, 2*time.Second)
-	stats, err := client.GetSecondaryTreePlaycount(context.Background(), "token", domain.SecondaryTreePlaycountRequest{
-		CommonFilters: domain.CommonFilters{Role: 3},
-		Tree:          domain.RuneStylePrecision,
-		Keystone:      8005,
-	})
-	if err != nil {
-		t.Fatalf("GetSecondaryTreePlaycount() error = %v", err)
-	}
-	if len(stats) != 1 || stats[0].Tree != domain.RuneStyleSorcery || stats[0].Occurrence != 1234 {
-		t.Fatalf("unexpected stats: %#v", stats)
-	}
-}
-
-func TestGetRuneStatsForKeystoneAndTreeSendsBody(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/Rune/GetRunesForKeystoneAndTree" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-
-		var body apiRuneStatsRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		if body.Keystone != 8437 || body.MainTree != domain.RuneStyleResolve || body.TreeToLoad != domain.RuneStyleSorcery {
-			t.Fatalf("unexpected body: %#v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode(apiRuneStatsByRow{
-			RowOnes:   []apiRuneStat{{Rune: 8224, WPAOverall: 0.6, Occurrence: 100}},
-			RowTwos:   []apiRuneStat{{Rune: 8233, WPAOverall: 0.7, Occurrence: 200}},
-			RowThrees: []apiRuneStat{{Rune: 8237, WPAOverall: 0.8, Occurrence: 300}},
-		})
-	}))
-	defer srv.Close()
-
-	client := NewClient(srv.URL, 2*time.Second)
-	stats, err := client.GetRuneStatsForKeystoneAndTree(context.Background(), "token", domain.RuneStatsRequest{
-		Keystone:   8437,
-		MainTree:   domain.RuneStyleResolve,
-		TreeToLoad: domain.RuneStyleSorcery,
-	})
-	if err != nil {
-		t.Fatalf("GetRuneStatsForKeystoneAndTree() error = %v", err)
-	}
-	if len(stats.RowOnes) != 1 || stats.RowOnes[0].Rune != 8224 || len(stats.RowTwos) != 1 || stats.RowTwos[0].Rune != 8233 {
-		t.Fatalf("unexpected stats: %#v", stats)
-	}
-}
-
-func TestGetShardStatsForKeystoneAndTreeSendsBody(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/Rune/GetShardsForKeystoneAndTree" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-
-		var body apiShardStatsRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		if body.Keystone != 8437 || body.CommonFilters.Role != 4 {
-			t.Fatalf("unexpected body: %#v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode(apiShardStats{
-			Offense: []apiRuneStat{{Rune: 5008, WPAOverall: 0.5, Occurrence: 100}},
-			Flex:    []apiRuneStat{{Rune: 5008, WPAOverall: 0.4, Occurrence: 100}},
-			Defense: []apiRuneStat{{Rune: 5002, WPAOverall: 0.3, Occurrence: 100}},
-		})
-	}))
-	defer srv.Close()
-
-	client := NewClient(srv.URL, 2*time.Second)
-	stats, err := client.GetShardStatsForKeystoneAndTree(context.Background(), "token", domain.ShardStatsRequest{
-		CommonFilters: domain.CommonFilters{Role: 4},
-		Keystone:      8437,
-	})
-	if err != nil {
-		t.Fatalf("GetShardStatsForKeystoneAndTree() error = %v", err)
-	}
-	if len(stats.Offense) != 1 || stats.Offense[0].Rune != 5008 || len(stats.Defense) != 1 || stats.Defense[0].Rune != 5002 {
-		t.Fatalf("unexpected stats: %#v", stats)
 	}
 }
 
@@ -292,5 +116,121 @@ func TestRefreshRejectsMissingTokens(t *testing.T) {
 				t.Fatal("expected Refresh() error")
 			}
 		})
+	}
+}
+
+func TestGetRecommendedBuildsToleratesNullPerkAndSpellSlots(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"role": 4,
+			"builds": [{
+				"keystone": 8437,
+				"tier": 0,
+				"winrate": 52.3,
+				"runes": {
+					"primaryTree": 8400,
+					"secondaryTree": 8200,
+					"selectedRunes": [8437, 8446, 8444, 8451, 8224, 8233],
+					"selectedShards": [5008, null, 5011]
+				},
+				"itemBlocks": []
+			}],
+			"spellDuos": [{"spellIds": [4, null]}]
+		}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, 2*time.Second)
+	builds, err := client.GetRecommendedBuilds(context.Background(), "token", domain.RecommendedBuildsRequest{})
+	if err != nil {
+		t.Fatalf("GetRecommendedBuilds() error = %v", err)
+	}
+
+	build := builds.Builds[0]
+	if !slices.Equal(build.Runes.SelectedRunes, []int{8437, 8446, 8444, 8451, 8224, 8233}) {
+		t.Fatalf("unexpected selected runes: %#v", build.Runes.SelectedRunes)
+	}
+	if !slices.Equal(build.Runes.SelectedShards, []int{5008, 5011}) {
+		t.Fatalf("unexpected selected shards: %#v", build.Runes.SelectedShards)
+	}
+	if !slices.Equal(builds.SpellDuos[0].SpellIDs, []int{4}) {
+		t.Fatalf("unexpected spell duo ids: %#v", builds.SpellDuos[0].SpellIDs)
+	}
+}
+
+func TestGetRecommendedBuildsSendsBodyAndParsesResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ChampionWinprob/GetRecommendedBuilds" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+
+		var body apiRecommendedBuildsRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if len(body.CommonFilters.ChampionIDs) != 1 || body.CommonFilters.ChampionIDs[0] != 240 {
+			t.Fatalf("unexpected body: %#v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(apiRecommendedBuildsResponse{
+			Role: 4,
+			Builds: []apiRecommendedBuild{{
+				Tier:    0,
+				Winrate:  52.3,
+				Runes: &apiBuildRunes{
+					PrimaryTree:    8000,
+					SecondaryTree:  8100,
+					SelectedRunes:  []int{8010, 8112},
+					SelectedShards: []int{5008, 5008, 5011},
+				},
+				ItemBlocks: []apiBuildBlock{
+					{Type: 0, Items: []apiBuildBlockItem{{ItemID: 1055}}},
+					{Type: 2, Items: []apiBuildBlockItem{
+						{ItemID: 1056},
+						{ItemID: 3158, ChooseOne: true},
+					}},
+				},
+			}},
+			SpellDuos: []apiSpellDuo{{
+				SpellIDs: []int{4, 12},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, 2*time.Second)
+	builds, err := client.GetRecommendedBuilds(context.Background(), "token", domain.RecommendedBuildsRequest{
+		CommonFilters: domain.CommonFilters{
+			ChampionIDs: []int{240},
+			Role:        4,
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetRecommendedBuilds() error = %v", err)
+	}
+
+	if builds.Role != 4 || len(builds.Builds) != 1 {
+		t.Fatalf("unexpected builds: %#v", builds)
+	}
+	build := builds.Builds[0]
+	if build.Tier != 0 || build.Winrate != 52.3 {
+		t.Fatalf("unexpected build: %#v", build)
+	}
+	if build.Runes == nil || build.Runes.PrimaryTree != 8000 || build.Runes.SecondaryTree != 8100 ||
+		len(build.Runes.SelectedRunes) != 2 || len(build.Runes.SelectedShards) != 3 {
+		t.Fatalf("unexpected runes: %#v", build.Runes)
+	}
+	if len(build.ItemBlocks) != 2 || build.ItemBlocks[1].Items[1].ItemID != 3158 || !build.ItemBlocks[1].Items[1].ChooseOne {
+		t.Fatalf("unexpected item blocks: %#v", build.ItemBlocks)
+	}
+	if len(builds.SpellDuos) != 1 || builds.SpellDuos[0].SpellIDs[0] != 4 || builds.SpellDuos[0].SpellIDs[1] != 12 {
+		t.Fatalf("unexpected spell duos: %#v", builds.SpellDuos)
 	}
 }

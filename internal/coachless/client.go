@@ -66,64 +66,14 @@ func (c *Client) GetPatches(ctx context.Context, accessToken string) ([]domain.P
 	return patchInfosFromAPI(out), nil
 }
 
-func (c *Client) GetKeystoneData(ctx context.Context, accessToken string, req domain.KeystoneRequest) ([]domain.KeystoneStat, error) {
-	var out []apiKeystoneStat
+func (c *Client) GetRecommendedBuilds(ctx context.Context, accessToken string, req domain.RecommendedBuildsRequest) (domain.RecommendedBuilds, error) {
+	var out apiRecommendedBuildsResponse
 
-	if err := c.doJSON(ctx, http.MethodPost, runeKeystoneDataPath, accessToken, apiKeystoneRequestFromDomain(req), &out); err != nil {
-		return nil, err
+	if err := c.doJSON(ctx, http.MethodPost, championWinprobRecommendedBuildsPath, accessToken, apiRecommendedBuildsRequestFromDomain(req), &out); err != nil {
+		return domain.RecommendedBuilds{}, err
 	}
 
-	return keystoneStatsFromAPI(out), nil
-}
-
-func (c *Client) GetSecondaryTreePlaycount(ctx context.Context, accessToken string, req domain.SecondaryTreePlaycountRequest) ([]domain.RuneTreePlaycount, error) {
-	var out []apiRuneTreePlaycount
-
-	if err := c.doJSON(ctx, http.MethodPost, runeSecondaryTreePlaycountPath, accessToken, apiSecondaryTreePlaycountRequestFromDomain(req), &out); err != nil {
-		return nil, err
-	}
-
-	return runeTreePlaycountsFromAPI(out), nil
-}
-
-func (c *Client) GetRuneStatsForKeystoneAndTree(ctx context.Context, accessToken string, req domain.RuneStatsRequest) (domain.RuneStatsByRow, error) {
-	var out apiRuneStatsByRow
-
-	if err := c.doJSON(ctx, http.MethodPost, runeStatsForKeystoneAndTreePath, accessToken, apiRuneStatsRequestFromDomain(req), &out); err != nil {
-		return domain.RuneStatsByRow{}, err
-	}
-
-	return runeStatsByRowFromAPI(out), nil
-}
-
-func (c *Client) GetShardStatsForKeystoneAndTree(ctx context.Context, accessToken string, req domain.ShardStatsRequest) (domain.ShardStats, error) {
-	var out apiShardStats
-
-	if err := c.doJSON(ctx, http.MethodPost, runeShardsForKeystoneAndTreePath, accessToken, apiShardStatsRequestFromDomain(req), &out); err != nil {
-		return domain.ShardStats{}, err
-	}
-
-	return shardStatsFromAPI(out), nil
-}
-
-func (c *Client) GetSummonerSpellStats(ctx context.Context, accessToken string, req domain.SummonerSpellStatsRequest) ([]domain.SummonerSpellStat, error) {
-	var out []apiSummonerSpellStat
-
-	if err := c.doJSON(ctx, http.MethodPost, championWinprobSummonerSpellStatsPath, accessToken, apiSummonerSpellStatsRequestFromDomain(req), &out); err != nil {
-		return nil, err
-	}
-
-	return summonerSpellStatsFromAPI(out), nil
-}
-
-func (c *Client) GetItemStats(ctx context.Context, accessToken string, req domain.ItemStatsRequest) ([]domain.ItemStat, error) {
-	var out []apiItemStat
-
-	if err := c.doJSON(ctx, http.MethodPost, championWinprobItemStatsPath, accessToken, apiItemStatsRequestFromDomain(req), &out); err != nil {
-		return nil, err
-	}
-
-	return itemStatsFromAPI(out), nil
+	return recommendedBuildsFromAPI(out), nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path, accessToken string, reqBody any, out any) error {

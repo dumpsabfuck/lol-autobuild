@@ -1,6 +1,7 @@
 package coachless
 
 import (
+	"encoding/json"
 	"slices"
 
 	"github.com/controlado/lol-autobuild/internal/autobuild/domain"
@@ -33,135 +34,65 @@ type apiCommonFilters struct {
 	Role               int            `json:"role"`
 }
 
-type apiKeystoneStat struct {
-	Rune       int     `json:"rune"`
-	WPAOverall float64 `json:"wpaOverall"`
-	Occurrence int     `json:"occurrence"`
-}
-
-type apiRuneStat struct {
-	Rune       int     `json:"rune"`
-	WPAOverall float64 `json:"wpaOverall"`
-	Occurrence int     `json:"occurrence"`
-}
-
-type apiRuneTreePlaycount struct {
-	Tree       int     `json:"tree"`
-	Occurrence float64 `json:"occurrence"`
-}
-
-type apiRuneStatsByRow struct {
-	RowOnes   []apiRuneStat `json:"rowOnes"`
-	RowTwos   []apiRuneStat `json:"rowTwos"`
-	RowThrees []apiRuneStat `json:"rowThrees"`
-}
-
-type apiShardStats struct {
-	Offense []apiRuneStat `json:"offense"`
-	Flex    []apiRuneStat `json:"flex"`
-	Defense []apiRuneStat `json:"defense"`
-}
-
-type apiSummonerSpellStat struct {
-	SummonerSpell int     `json:"summonerSpell"`
-	WPAOverall    float64 `json:"wpaOverall"`
-	Occurrence    int     `json:"occurrence"`
-}
-
-type apiItemStat struct {
-	ItemID     int     `json:"itemId"`
-	WPAOverall float64 `json:"wpaOverall"`
-	Occurrence int     `json:"occurrence"`
-}
-
-type apiKeystoneRequest struct {
+type apiRecommendedBuildsRequest struct {
 	CommonFilters apiCommonFilters `json:"commonFilters"`
 }
 
-type apiSecondaryTreePlaycountRequest struct {
-	CommonFilters apiCommonFilters `json:"commonFilters"`
-	Tree          int              `json:"tree"`
-	Keystone      int              `json:"keystone"`
+type apiRecommendedBuildsResponse struct {
+	Role      int                   `json:"role"`
+	Builds    []apiRecommendedBuild `json:"builds"`
+	SpellDuos []apiSpellDuo         `json:"spellDuos"`
 }
 
-type apiRuneStatsRequest struct {
-	CommonFilters apiCommonFilters `json:"commonFilters"`
-	Keystone      int              `json:"keystone"`
-	MainTree      int              `json:"mainTree"`
-	TreeToLoad    int              `json:"treeToLoad"`
+type apiRecommendedBuild struct {
+	Tier       int             `json:"tier"`
+	Winrate    float64         `json:"winrate"`
+	Runes      *apiBuildRunes  `json:"runes"`
+	ItemBlocks []apiBuildBlock `json:"itemBlocks"`
 }
 
-type apiShardStatsRequest struct {
-	CommonFilters apiCommonFilters `json:"commonFilters"`
-	Keystone      int              `json:"keystone"`
-}
+// apiIntList tolerates JSON null entries (e.g. unpicked rune shards and spell slots).
+type apiIntList []int
 
-type apiSummonerSpellStatsRequest struct {
-	CommonFilters apiCommonFilters `json:"commonFilters"`
-	PairedSpell   *int             `json:"pairedSpell"`
-}
-
-type apiItemStatsRequest struct {
-	CommonFilters         apiCommonFilters `json:"commonFilters"`
-	ItemSlots             []int            `json:"itemSlots,omitempty"`
-	ItemType              int              `json:"itemType"`
-	Keystone              *int             `json:"keystone"`
-	StarterID             *int             `json:"starterId"`
-	FirstPurchaseID       *int             `json:"firstPurchaseId"`
-	FirstLegendaryID      *int             `json:"firstLegendaryId"`
-	SecondLegendaryID     *int             `json:"secondLegendaryId"`
-	LoadFirstEpicPurchase bool             `json:"loadFirstEpicPurchase"`
-	IncludeSupportItems   bool             `json:"includeSupportItems"`
-}
-
-func apiKeystoneRequestFromDomain(req domain.KeystoneRequest) apiKeystoneRequest {
-	return apiKeystoneRequest{CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters)}
-}
-
-func apiSecondaryTreePlaycountRequestFromDomain(req domain.SecondaryTreePlaycountRequest) apiSecondaryTreePlaycountRequest {
-	return apiSecondaryTreePlaycountRequest{
-		CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters),
-		Tree:          req.Tree,
-		Keystone:      req.Keystone,
+func (l *apiIntList) UnmarshalJSON(data []byte) error {
+	var raw []any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
 	}
+
+	out := make(apiIntList, 0, len(raw))
+	for _, value := range raw {
+		if number, ok := value.(float64); ok {
+			out = append(out, int(number))
+		}
+	}
+	*l = out
+	return nil
 }
 
-func apiRuneStatsRequestFromDomain(req domain.RuneStatsRequest) apiRuneStatsRequest {
-	return apiRuneStatsRequest{
-		CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters),
-		Keystone:      req.Keystone,
-		MainTree:      req.MainTree,
-		TreeToLoad:    req.TreeToLoad,
-	}
+type apiBuildRunes struct {
+	PrimaryTree    int        `json:"primaryTree"`
+	SecondaryTree  int        `json:"secondaryTree"`
+	SelectedRunes  apiIntList `json:"selectedRunes"`
+	SelectedShards apiIntList `json:"selectedShards"`
 }
 
-func apiShardStatsRequestFromDomain(req domain.ShardStatsRequest) apiShardStatsRequest {
-	return apiShardStatsRequest{
-		CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters),
-		Keystone:      req.Keystone,
-	}
+type apiBuildBlock struct {
+	Type  int                 `json:"type"`
+	Items []apiBuildBlockItem `json:"items"`
 }
 
-func apiSummonerSpellStatsRequestFromDomain(req domain.SummonerSpellStatsRequest) apiSummonerSpellStatsRequest {
-	return apiSummonerSpellStatsRequest{
-		CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters),
-		PairedSpell:   req.PairedSpell,
-	}
+type apiBuildBlockItem struct {
+	ItemID    int  `json:"itemId"`
+	ChooseOne bool `json:"chooseOne"`
 }
 
-func apiItemStatsRequestFromDomain(req domain.ItemStatsRequest) apiItemStatsRequest {
-	return apiItemStatsRequest{
-		CommonFilters:         apiCommonFiltersFromDomain(req.CommonFilters),
-		ItemSlots:             slices.Clone(req.ItemSlots),
-		ItemType:              req.ItemType,
-		Keystone:              req.Keystone,
-		StarterID:             req.StarterID,
-		FirstPurchaseID:       req.FirstPurchaseID,
-		FirstLegendaryID:      req.FirstLegendaryID,
-		SecondLegendaryID:     req.SecondLegendaryID,
-		LoadFirstEpicPurchase: req.LoadFirstEpicPurchase,
-		IncludeSupportItems:   req.IncludeSupportItems,
-	}
+type apiSpellDuo struct {
+	SpellIDs apiIntList `json:"spellIds"`
+}
+
+func apiRecommendedBuildsRequestFromDomain(req domain.RecommendedBuildsRequest) apiRecommendedBuildsRequest {
+	return apiRecommendedBuildsRequest{CommonFilters: apiCommonFiltersFromDomain(req.CommonFilters)}
 }
 
 func apiCommonFiltersFromDomain(filters domain.CommonFilters) apiCommonFilters {
@@ -195,77 +126,41 @@ func patchInfosFromAPI(in []apiPatchInfo) []domain.PatchInfo {
 	return out
 }
 
-func keystoneStatsFromAPI(in []apiKeystoneStat) []domain.KeystoneStat {
-	out := make([]domain.KeystoneStat, 0, len(in))
-	for _, stat := range in {
-		out = append(out, domain.KeystoneStat{
-			Rune:       stat.Rune,
-			WPAOverall: stat.WPAOverall,
-			Occurrence: stat.Occurrence,
-		})
+func recommendedBuildsFromAPI(in apiRecommendedBuildsResponse) domain.RecommendedBuilds {
+	out := domain.RecommendedBuilds{
+		Role:      in.Role,
+		Builds:    make([]domain.RecommendedBuild, 0, len(in.Builds)),
+		SpellDuos: make([]domain.SpellDuo, 0, len(in.SpellDuos)),
+	}
+	for _, build := range in.Builds {
+		out.Builds = append(out.Builds, recommendedBuildFromAPI(build))
+	}
+	for _, duo := range in.SpellDuos {
+		out.SpellDuos = append(out.SpellDuos, domain.SpellDuo{SpellIDs: slices.Clone(duo.SpellIDs)})
 	}
 	return out
 }
 
-func runeTreePlaycountsFromAPI(in []apiRuneTreePlaycount) []domain.RuneTreePlaycount {
-	out := make([]domain.RuneTreePlaycount, 0, len(in))
-	for _, stat := range in {
-		out = append(out, domain.RuneTreePlaycount{
-			Tree:       stat.Tree,
-			Occurrence: stat.Occurrence,
-		})
+func recommendedBuildFromAPI(in apiRecommendedBuild) domain.RecommendedBuild {
+	build := domain.RecommendedBuild{
+		Tier:       in.Tier,
+		Winrate:    in.Winrate,
+		ItemBlocks: make([]domain.BuildBlock, 0, len(in.ItemBlocks)),
 	}
-	return out
-}
-
-func runeStatsByRowFromAPI(in apiRuneStatsByRow) domain.RuneStatsByRow {
-	return domain.RuneStatsByRow{
-		RowOnes:   runeStatsFromAPI(in.RowOnes),
-		RowTwos:   runeStatsFromAPI(in.RowTwos),
-		RowThrees: runeStatsFromAPI(in.RowThrees),
+	if in.Runes != nil {
+		build.Runes = &domain.BuildRunes{
+			PrimaryTree:    in.Runes.PrimaryTree,
+			SecondaryTree:  in.Runes.SecondaryTree,
+			SelectedRunes:  slices.Clone([]int(in.Runes.SelectedRunes)),
+			SelectedShards: slices.Clone([]int(in.Runes.SelectedShards)),
+		}
 	}
-}
-
-func shardStatsFromAPI(in apiShardStats) domain.ShardStats {
-	return domain.ShardStats{
-		Offense: runeStatsFromAPI(in.Offense),
-		Flex:    runeStatsFromAPI(in.Flex),
-		Defense: runeStatsFromAPI(in.Defense),
+	for _, block := range in.ItemBlocks {
+		items := make([]domain.BuildBlockItem, 0, len(block.Items))
+		for _, item := range block.Items {
+			items = append(items, domain.BuildBlockItem{ItemID: item.ItemID, ChooseOne: item.ChooseOne})
+		}
+		build.ItemBlocks = append(build.ItemBlocks, domain.BuildBlock{Type: block.Type, Items: items})
 	}
-}
-
-func runeStatsFromAPI(in []apiRuneStat) []domain.RuneStat {
-	out := make([]domain.RuneStat, 0, len(in))
-	for _, stat := range in {
-		out = append(out, domain.RuneStat{
-			Rune:       stat.Rune,
-			WPAOverall: stat.WPAOverall,
-			Occurrence: stat.Occurrence,
-		})
-	}
-	return out
-}
-
-func summonerSpellStatsFromAPI(in []apiSummonerSpellStat) []domain.SummonerSpellStat {
-	out := make([]domain.SummonerSpellStat, 0, len(in))
-	for _, stat := range in {
-		out = append(out, domain.SummonerSpellStat{
-			SummonerSpell: stat.SummonerSpell,
-			WPAOverall:    stat.WPAOverall,
-			Occurrence:    stat.Occurrence,
-		})
-	}
-	return out
-}
-
-func itemStatsFromAPI(in []apiItemStat) []domain.ItemStat {
-	out := make([]domain.ItemStat, 0, len(in))
-	for _, stat := range in {
-		out = append(out, domain.ItemStat{
-			ItemID:     stat.ItemID,
-			WPAOverall: stat.WPAOverall,
-			Occurrence: stat.Occurrence,
-		})
-	}
-	return out
+	return build
 }

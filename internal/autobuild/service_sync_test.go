@@ -4,35 +4,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/controlado/lol-autobuild/internal/autobuild/domain"
-	"github.com/controlado/lol-autobuild/internal/autobuild/recommend"
 )
+
+func newTestService(coachless *coachlessStub, lcu *lcuStub) (Service, error) {
+	return NewService(ServiceDeps{
+		Coachless: coachless,
+		Tokens:    tokenProviderStub{token: "t"},
+		LCU:       lcu,
+	})
+}
+
+func topSelection() domain.DetectedSelection {
+	return domain.DetectedSelection{
+		ChampionID:   240,
+		ChampionName: "Kled",
+		Position:     domain.Top,
+		QueueID:      420,
+	}
+}
 
 func TestSyncDryRunDetectsChampionButDoesNotApplyLCU(t *testing.T) {
 	t.Parallel()
 
 	coachless := &coachlessStub{}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID:   240,
-			ChampionName: "Kled",
-			Position:     domain.Top,
-			QueueID:      420,
-			IsAutofilled: false,
-		},
-	}
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
+	lcu := &lcuStub{detectedSelection: topSelection()}
+	svc, err := newTestService(coachless, lcu)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -47,42 +48,38 @@ func TestSyncDryRunDetectsChampionButDoesNotApplyLCU(t *testing.T) {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	if got.DetectedChampionID != 240 {
-		t.Fatalf("unexpected detected champion id: %d", got.DetectedChampionID)
+	if got.DetectedChampionID != 240 || got.DetectedChampionName != "Kled" ||
+		got.DetectedPosition != domain.Top.String() || got.DetectedQueueID != 420 {
+		t.Fatalf("unexpected detection: %#v", got)
 	}
-	if got.DetectedChampionName != "Kled" {
-		t.Fatalf("unexpected detected champion name: %q", got.DetectedChampionName)
-	}
-	if got.DetectedPosition != domain.Top.String() {
-		t.Fatalf("unexpected detected position: %q", got.DetectedPosition)
-	}
-	if got.DetectedQueueID != 420 {
-		t.Fatalf("unexpected detected queue id: %d", got.DetectedQueueID)
-	}
-
 	if got.ItemSetApplied || got.RunePageApplied || got.SpellsApplied {
 		t.Fatalf("expected no applied flags in dry-run, got %#v", got)
 	}
-
 	if lcu.detectCalls != 1 {
 		t.Fatalf("expected exactly one detect call, got %d", lcu.detectCalls)
 	}
-
 	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
-		t.Fatalf("expected no LCU apply calls in dry-run, got items=%d runes=%d spells=%d", len(lcu.itemSetCalls), len(lcu.runePageCalls), len(lcu.spellCalls))
+		t.Fatalf("expected no LCU apply calls in dry-run")
 	}
 
-	if coachless.getPatchesCalls != 1 {
-		t.Fatalf("expected coachless calls after successful detect, got getPatches=%d", coachless.getPatchesCalls)
+	coachless.mu.Lock()
+	req := coachless.buildsReq
+	coachless.mu.Unlock()
+	if req == nil {
+		t.Fatal("expected one recommended builds call")
 	}
-	if len(coachless.keystoneCalls) != 1 {
-		t.Fatalf("expected one keystone call, got %d", len(coachless.keystoneCalls))
+	if req.CommonFilters.Role != 0 {
+		t.Fatalf("expected detected top role code 0, got %d", req.CommonFilters.Role)
 	}
-	if len(coachless.treeCalls)+len(coachless.runeCalls)+len(coachless.shardCalls) != 0 {
-		t.Fatalf("dry-run should not load full rune page data, got trees=%d runes=%d shards=%d", len(coachless.treeCalls), len(coachless.runeCalls), len(coachless.shardCalls))
+
+	found := false
+	for _, warning := range got.Warnings {
+		if strings.Contains(warning, "dry-run enabled") {
+			found = true
+		}
 	}
-	if coachless.keystoneCalls[0].CommonFilters.Role != 0 {
-		t.Fatalf("expected detected top role code 0, got %d", coachless.keystoneCalls[0].CommonFilters.Role)
+	if !found {
+		t.Fatalf("expected dry-run warning, got %#v", got.Warnings)
 	}
 }
 
@@ -99,80 +96,160 @@ func TestSyncUsesDetectedChampionIDInApplyRequests(t *testing.T) {
 			IsAutofilled: true,
 		},
 	}
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
+	svc, err := newTestService(coachless, lcu)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	wantPosition := domain.Support
 	got, err := svc.Sync(context.Background(), SyncRequest{
 		ApplyItems:  true,
 		ApplyRunes:  true,
 		ApplySpells: true,
 		KeepFlash:   true,
-		DryRun:      false,
 	})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	if got.DetectedChampionID != 777 {
-		t.Fatalf("expected detected champion 777, got %d", got.DetectedChampionID)
-	}
-	if got.DetectedChampionName != "Yone" {
-		t.Fatalf("expected detected champion Yone, got %q", got.DetectedChampionName)
-	}
-	if got.DetectedPosition != wantPosition.String() {
-		t.Fatalf("expected detected position support, got %q", got.DetectedPosition)
-	}
-	if got.DetectedQueueID != 440 {
-		t.Fatalf("expected detected queue 440, got %d", got.DetectedQueueID)
-	}
-	if len(got.Warnings) == 0 {
-		t.Fatalf("expected warnings to include patch/autofill messages")
-	}
-
 	if len(lcu.itemSetCalls) != 1 || len(lcu.runePageCalls) != 1 || len(lcu.spellCalls) != 1 {
 		t.Fatalf("unexpected LCU apply calls: items=%d runes=%d spells=%d", len(lcu.itemSetCalls), len(lcu.runePageCalls), len(lcu.spellCalls))
 	}
-
 	if lcu.itemSetCalls[0].ChampionID != 777 || lcu.runePageCalls[0].ChampionID != 777 || lcu.spellCalls[0].ChampionID != 777 {
 		t.Fatalf("apply calls must use detected champion id")
 	}
 	if lcu.itemSetCalls[0].ChampionName != "Yone" || lcu.runePageCalls[0].ChampionName != "Yone" {
 		t.Fatalf("item and rune apply calls must use detected champion name")
 	}
-	if lcu.itemSetCalls[0].Position != wantPosition || lcu.runePageCalls[0].Position != wantPosition || lcu.spellCalls[0].Position != wantPosition {
+	if lcu.itemSetCalls[0].Position != domain.Support || lcu.runePageCalls[0].Position != domain.Support || lcu.spellCalls[0].Position != domain.Support {
 		t.Fatalf("apply calls must use detected role")
 	}
 	if !lcu.spellCalls[0].KeepFlash {
 		t.Fatalf("summoner spell apply should keep flash")
 	}
+
 	wantPage := domain.RunePage{
 		PrimaryStyleID:  domain.RuneStyleResolve,
 		SubStyleID:      domain.RuneStyleSorcery,
-		SelectedPerkIDs: []int{8437, 8446, 8444, 8451, 8233, 8224, 5008, 5008, 5002},
+		SelectedPerkIDs: []int{domain.RuneKeystoneGraspOfTheUndying, 8446, 8444, 8451, 8224, 8233, 5008, 5008, 5002},
 	}
-	if !reflect.DeepEqual(lcu.runePageCalls[0].Page, wantPage) {
+	if !slices.Equal(lcu.runePageCalls[0].Page.SelectedPerkIDs, wantPage.SelectedPerkIDs) ||
+		lcu.runePageCalls[0].Page.PrimaryStyleID != wantPage.PrimaryStyleID ||
+		lcu.runePageCalls[0].Page.SubStyleID != wantPage.SubStyleID {
 		t.Fatalf("unexpected rune page: %#v", lcu.runePageCalls[0].Page)
 	}
-	if len(coachless.keystoneCalls) != 1 {
-		t.Fatalf("expected one keystone call, got %d", len(coachless.keystoneCalls))
+
+	wantSpells := []int{4, 14}
+	if !slices.Equal(lcu.spellCalls[0].SpellIDs, wantSpells) {
+		t.Fatalf("unexpected spells: %#v", lcu.spellCalls[0].SpellIDs)
 	}
-	if coachless.keystoneCalls[0].CommonFilters.Role != 4 {
-		t.Fatalf("expected support role code 4, got %d", coachless.keystoneCalls[0].CommonFilters.Role)
+
+	coachless.mu.Lock()
+	req := coachless.buildsReq
+	coachless.mu.Unlock()
+	if req.CommonFilters.Role != 4 {
+		t.Fatalf("expected support role code 4, got %d", req.CommonFilters.Role)
 	}
-	if len(coachless.keystoneCalls[0].CommonFilters.ChampionIDs) != 1 || coachless.keystoneCalls[0].CommonFilters.ChampionIDs[0] != 777 {
+	if len(req.CommonFilters.ChampionIDs) != 1 || req.CommonFilters.ChampionIDs[0] != 777 {
 		t.Fatalf("coachless filters must include detected champion id 777")
 	}
-	if len(coachless.treeCalls) != 1 || len(coachless.runeCalls) != 2 || len(coachless.shardCalls) != 1 {
-		t.Fatalf("expected complete rune page lookups, got trees=%d runes=%d shards=%d", len(coachless.treeCalls), len(coachless.runeCalls), len(coachless.shardCalls))
+	if !slices.Contains(got.Warnings, "autofill detected in current champ select") {
+		t.Fatalf("expected autofill warning, got %#v", got.Warnings)
+	}
+}
+
+func TestSyncAppliesFirstRecommendedBuild(t *testing.T) {
+	t.Parallel()
+
+	coachless := &coachlessStub{builds: &domain.RecommendedBuilds{
+		Builds: []domain.RecommendedBuild{
+			defaultBuilds.Builds[0],
+			{
+				ItemBlocks: []domain.BuildBlock{
+					{Type: domain.BlockStarter, Items: []domain.BuildBlockItem{{ItemID: 1056}}},
+				},
+			},
+		},
+		SpellDuos: defaultBuilds.SpellDuos,
+	}}
+	lcu := &lcuStub{detectedSelection: topSelection()}
+	svc, err := newTestService(coachless, lcu)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	got, err := svc.Sync(context.Background(), SyncRequest{ApplyItems: true, ApplyRunes: true, ApplySpells: true})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	blocks := lcu.itemSetCalls[0].Blocks
+	for _, b := range blocks {
+		t.Logf("block %q items=%v", b.Type, b.ItemIDs)
+	}
+	if len(blocks) != 1 || blocks[0].Type != "Starter" || !slices.Equal(blocks[0].ItemIDs, []int{1055}) {
+		t.Fatalf("expected first build's starter block, got %d blocks", len(blocks))
+	}
+	if !slices.Contains(got.Warnings, "selected build: tier S, 52.3% win rate") {
+		t.Fatalf("expected build tier warning, got %#v", got.Warnings)
+	}
+}
+
+func TestSyncWarnsWhenNoBuildAvailable(t *testing.T) {
+	t.Parallel()
+
+	coachless := &coachlessStub{builds: &domain.RecommendedBuilds{}}
+	lcu := &lcuStub{detectedSelection: topSelection()}
+	svc, err := newTestService(coachless, lcu)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	got, err := svc.Sync(context.Background(), SyncRequest{ApplyItems: true, ApplyRunes: true, ApplySpells: true})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if got.ItemSetApplied || got.RunePageApplied || got.SpellsApplied {
+		t.Fatalf("expected no applies, got %#v", got)
+	}
+	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
+		t.Fatalf("expected no LCU apply calls")
+	}
+	if !slices.Contains(got.Warnings, "no build recommendation was available") {
+		t.Fatalf("expected no-build warning, got %#v", got.Warnings)
+	}
+}
+
+func TestSyncWarnsWhenBuildHasNoRunes(t *testing.T) {
+	t.Parallel()
+
+	noRunes := defaultBuilds
+	noRunes.Builds = slices.Clone(defaultBuilds.Builds)
+	noRunes.Builds[0].Runes = nil
+
+	coachless := &coachlessStub{builds: &noRunes}
+	lcu := &lcuStub{detectedSelection: topSelection()}
+	svc, err := newTestService(coachless, lcu)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	got, err := svc.Sync(context.Background(), SyncRequest{ApplyItems: true, ApplyRunes: true, ApplySpells: true})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if got.RunePageApplied {
+		t.Fatalf("expected no rune page apply, got %#v", got)
+	}
+	if len(lcu.runePageCalls) != 0 {
+		t.Fatalf("expected no rune page apply call")
+	}
+	if !got.ItemSetApplied || !got.SpellsApplied {
+		t.Fatalf("expected spells and items to still be applied, got %#v", got)
+	}
+	if !slices.Contains(got.Warnings, "apply runes requested but no rune page recommendation was available") {
+		t.Fatalf("expected no-runes warning, got %#v", got.Warnings)
 	}
 }
 
@@ -181,28 +258,15 @@ func TestSyncTranslatesRunePageLimitWarning(t *testing.T) {
 
 	coachless := &coachlessStub{}
 	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID: 240,
-			Position:   domain.Top,
-			QueueID:    420,
-		},
-		runePageErr: fmt.Errorf(`apply rune page failed: {"errorCode":"RPC_ERROR","message":"Max pages reached"}: %w`, domain.ErrRunePageLimitReached),
+		detectedSelection: topSelection(),
+		runePageErr:       fmt.Errorf(`apply rune page failed: {"errorCode":"RPC_ERROR","message":"Max pages reached"}: %w`, domain.ErrRunePageLimitReached),
 	}
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
+	svc, err := newTestService(coachless, lcu)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	got, err := svc.Sync(context.Background(), SyncRequest{
-		ApplyRunes: true,
-		DryRun:     false,
-	})
+	got, err := svc.Sync(context.Background(), SyncRequest{ApplyRunes: true})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -228,59 +292,51 @@ func TestSyncTranslatesRunePageLimitWarning(t *testing.T) {
 	}
 }
 
-func TestSyncDoesNotApplyIncompleteRunePage(t *testing.T) {
+func TestSyncFailsFastWhenChampionDetectionFails(t *testing.T) {
 	t.Parallel()
 
-	emptyPrimaryRunes := domain.RuneStatsByRow{
-		RowTwos:   []domain.RuneStat{{Rune: 8444, WPAOverall: 0.8, Occurrence: 1000}},
-		RowThrees: []domain.RuneStat{{Rune: 8451, WPAOverall: 0.7, Occurrence: 1000}},
-	}
-	coachless := &coachlessStub{primaryRunes: &emptyPrimaryRunes}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID: 240,
-			Position:   domain.Top,
-			QueueID:    420,
-		},
-	}
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
+	coachless := &coachlessStub{}
+	lcu := &lcuStub{detectErr: errors.New("no session")}
+	svc, err := newTestService(coachless, lcu)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	got, err := svc.Sync(context.Background(), SyncRequest{
-		ApplyRunes: true,
-		DryRun:     false,
-	})
+	_, err = svc.Sync(context.Background(), SyncRequest{ApplyItems: true, ApplyRunes: true, ApplySpells: true})
+	if err == nil {
+		t.Fatal("expected sync error when detect champion id fails")
+	}
+	if lcu.detectCalls != 1 {
+		t.Fatalf("expected one detect call, got %d", lcu.detectCalls)
+	}
+	if coachless.getPatchesCalls != 0 {
+		t.Fatalf("coachless should not be called when detection fails, got getPatches=%d", coachless.getPatchesCalls)
+	}
+	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
+		t.Fatalf("LCU apply should not run when detection fails")
+	}
+}
+
+func TestSyncReturnsErrorWhenBuildsQueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("builds endpoint failed")
+	coachless := &coachlessStub{buildsErr: queryErr}
+	lcu := &lcuStub{detectedSelection: topSelection()}
+	svc, err := newTestService(coachless, lcu)
 	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
+		t.Fatalf("NewService() error = %v", err)
 	}
 
-	if got.RunePageApplied {
-		t.Fatalf("expected incomplete rune page to skip apply, got %#v", got)
+	_, err = svc.Sync(context.Background(), SyncRequest{ApplyItems: true, ApplyRunes: true, ApplySpells: true})
+	if err == nil {
+		t.Fatal("expected sync error when builds query fails")
 	}
-	if len(lcu.runePageCalls) != 0 {
-		t.Fatalf("expected no rune page apply call, got %d", len(lcu.runePageCalls))
+	if !errors.Is(err, queryErr) {
+		t.Fatalf("expected wrapped query error, got %v", err)
 	}
-	if len(coachless.treeCalls) != 1 || len(coachless.runeCalls) != 2 || len(coachless.shardCalls) != 1 {
-		t.Fatalf("expected complete rune page lookup before validation, got trees=%d runes=%d shards=%d", len(coachless.treeCalls), len(coachless.runeCalls), len(coachless.shardCalls))
-	}
-
-	foundWarning := false
-	for _, warning := range got.Warnings {
-		if strings.Contains(warning, "no primary row 1 rune recommendation") {
-			foundWarning = true
-			break
-		}
-	}
-	if !foundWarning {
-		t.Fatalf("expected missing rune row warning, got %#v", got.Warnings)
+	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
+		t.Fatalf("LCU apply should not run when builds query fails")
 	}
 }
 
@@ -299,58 +355,6 @@ func TestSyncUsesAdvancedCoachlessFilters(t *testing.T) {
 			ChampionID: 240,
 			Position:   domain.Top,
 			QueueID:    420,
-		},
-	}
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t", claims: domain.TokenClaims{Subscribed: true}},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
-	_, err = svc.Sync(context.Background(), SyncRequest{
-		PatchAdditionsMode: PatchAdditionsModeManual,
-		PatchAdditions:     PatchAdditionsDefault,
-		LeagueTierPreset:   LeagueTierPresetDiamondPlus,
-		Regions:            []int{CoachlessRegionNA, CoachlessRegionBR, CoachlessRegionNA},
-		ApplyItems:         true,
-		ApplyRunes:         true,
-		ApplySpells:        true,
-		DryRun:             true,
-	})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	if len(coachless.keystoneCalls) != 1 {
-		t.Fatalf("expected one keystone call, got %d", len(coachless.keystoneCalls))
-	}
-
-	gotFilters := coachless.keystoneCalls[0].CommonFilters
-	if gotFilters.Patch.Major != 16 || gotFilters.Patch.Patch != 8 || gotFilters.Patch.PatchAdditions != PatchAdditionsDefault {
-		t.Fatalf("unexpected patch filter: %#v", gotFilters.Patch)
-	}
-	if !slices.Equal(gotFilters.LeagueTiers, []int{6, 7}) {
-		t.Fatalf("league tiers = %#v, want %#v", gotFilters.LeagueTiers, []int{6, 7})
-	}
-	if !slices.Equal(gotFilters.Regions, []int{CoachlessRegionBR, CoachlessRegionNA}) {
-		t.Fatalf("regions = %#v, want %#v", gotFilters.Regions, []int{CoachlessRegionBR, CoachlessRegionNA})
-	}
-}
-
-func TestSyncSendsSelectedMatchupsInLCUEnemyOrder(t *testing.T) {
-	t.Parallel()
-
-	coachless := &coachlessStub{}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID: 240,
-			Position:   domain.Top,
-			QueueID:    420,
 			EnemyChampions: []domain.ChampionRef{
 				{ID: 10, Name: "Kayle"},
 				{ID: 20, Name: "Nunu & Willump"},
@@ -362,303 +366,48 @@ func TestSyncSendsSelectedMatchupsInLCUEnemyOrder(t *testing.T) {
 		},
 	}
 	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
+		Coachless: coachless,
+		Tokens:    tokenProviderStub{token: "t", claims: domain.TokenClaims{Subscribed: true}},
+		LCU:       lcu,
 	})
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
 	_, err = svc.Sync(context.Background(), SyncRequest{
+		PatchAdditionsMode: PatchAdditionsModeManual,
+		PatchAdditions:     PatchAdditionsDefault,
+		LeagueTierPreset:   LeagueTierPresetDiamondPlus,
+		Regions:            []int{CoachlessRegionNA, CoachlessRegionBR, CoachlessRegionNA},
 		MatchupChampionIDs: []int{60, 20, 0, 20, 10, 30, 40, 50},
 		ApplyItems:         true,
 		ApplyRunes:         true,
 		ApplySpells:        true,
-		DryRun:             false,
+		DryRun:             true,
 	})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	want := []int{10, 20, 30, 40, 60}
-	assertMatchups(t, coachless.keystoneCalls[0].CommonFilters, want)
-	assertMatchups(t, coachless.spellCalls[0].CommonFilters, want)
-	for idx, call := range coachless.itemCalls {
-		assertMatchupsFor(t, call.CommonFilters, want, fmt.Sprintf("item call %d", idx))
-	}
-	for idx, call := range coachless.treeCalls {
-		assertMatchupsFor(t, call.CommonFilters, want, fmt.Sprintf("tree call %d", idx))
-	}
-	for idx, call := range coachless.runeCalls {
-		assertMatchupsFor(t, call.CommonFilters, want, fmt.Sprintf("rune call %d", idx))
-	}
-	for idx, call := range coachless.shardCalls {
-		assertMatchupsFor(t, call.CommonFilters, want, fmt.Sprintf("shard call %d", idx))
-	}
-}
-
-func TestSyncFailsFastWhenChampionDetectionFails(t *testing.T) {
-	t.Parallel()
-
-	coachless := &coachlessStub{}
-	lcu := &lcuStub{detectErr: errors.New("no session")}
-
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
+	coachless.mu.Lock()
+	req := coachless.buildsReq
+	coachless.mu.Unlock()
+	if req == nil {
+		t.Fatal("expected one recommended builds call")
 	}
 
-	_, err = svc.Sync(context.Background(), SyncRequest{
-		ApplyItems:  true,
-		ApplyRunes:  true,
-		ApplySpells: true,
-		DryRun:      false,
-	})
-	if err == nil {
-		t.Fatal("expected sync error when detect champion id fails")
+	gotFilters := req.CommonFilters
+	if gotFilters.Patch.Major != 16 || gotFilters.Patch.Patch != 8 || gotFilters.Patch.PatchAdditions != PatchAdditionsDefault {
+		t.Fatalf("unexpected patch filter: %#v", gotFilters.Patch)
 	}
-
-	if lcu.detectCalls != 1 {
-		t.Fatalf("expected one detect call, got %d", lcu.detectCalls)
+	if !slices.Equal(gotFilters.LeagueTiers, []int{6, 7}) {
+		t.Fatalf("league tiers = %#v, want %#v", gotFilters.LeagueTiers, []int{6, 7})
 	}
-
-	if coachless.getPatchesCalls != 0 {
-		t.Fatalf("coachless should not be called when detection fails, got getPatches=%d", coachless.getPatchesCalls)
+	if !slices.Equal(gotFilters.Regions, []int{CoachlessRegionBR, CoachlessRegionNA}) {
+		t.Fatalf("regions = %#v, want %#v", gotFilters.Regions, []int{CoachlessRegionBR, CoachlessRegionNA})
 	}
-
-	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
-		t.Fatalf("LCU apply should not run when detection fails")
-	}
-}
-
-func TestSyncReturnsErrorWhenRecommendationQueryFails(t *testing.T) {
-	t.Parallel()
-
-	queryErr := errors.New("spell endpoint failed")
-	coachless := &coachlessStub{spellErr: queryErr}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID:   240,
-			Position:     domain.Top,
-			QueueID:      420,
-			IsAutofilled: false,
-		},
-	}
-
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
-	_, err = svc.Sync(context.Background(), SyncRequest{
-		ApplyItems:  true,
-		ApplyRunes:  true,
-		ApplySpells: true,
-		DryRun:      false,
-	})
-	if err == nil {
-		t.Fatal("expected sync error when one recommendation query fails")
-	}
-	if !errors.Is(err, queryErr) {
-		t.Fatalf("expected wrapped query error, got %v", err)
-	}
-
-	if len(lcu.itemSetCalls)+len(lcu.runePageCalls)+len(lcu.spellCalls) != 0 {
-		t.Fatalf("LCU apply should not run when recommendation query fails")
-	}
-}
-
-func TestSyncBuildsCoachlessStyleItemBlocks(t *testing.T) {
-	t.Parallel()
-
-	coachless := &coachlessStub{}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID:   777,
-			Position:     domain.Support,
-			QueueID:      440,
-			IsAutofilled: false,
-		},
-	}
-
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 1, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
-	got, err := svc.Sync(context.Background(), SyncRequest{
-		ApplyItems:  true,
-		ApplyRunes:  true,
-		ApplySpells: true,
-		DryRun:      false,
-	})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-	if !got.ItemSetApplied {
-		t.Fatalf("expected item set to be applied, got %#v", got)
-	}
-	if len(lcu.itemSetCalls) != 1 {
-		t.Fatalf("expected one item set apply call, got %d", len(lcu.itemSetCalls))
-	}
-
-	blocks := lcu.itemSetCalls[0].Blocks
-	wantBlockTypes := []string{"Starter", "1st Item", "2nd Item", "Boots", "3rd Item", "4th+ Item"}
-	if len(blocks) != len(wantBlockTypes) {
-		t.Fatalf("expected %d blocks, got %d (%#v)", len(wantBlockTypes), len(blocks), blocks)
-	}
-	for idx, block := range blocks {
-		if block.Type != wantBlockTypes[idx] {
-			t.Fatalf("unexpected block order/type at index %d: got %q want %q", idx, block.Type, wantBlockTypes[idx])
-		}
-		if len(block.ItemIDs) != 1 || block.ItemIDs[0] != 1055 {
-			t.Fatalf("unexpected block items at index %d: %#v", idx, block.ItemIDs)
-		}
-	}
-
-	if len(coachless.itemCalls) != 6 {
-		t.Fatalf("expected 6 staged item calls, got %d", len(coachless.itemCalls))
-	}
-	if !hasItemCall(coachless.itemCalls, 6, nil, false) {
-		t.Fatalf("missing starter item query in %+v", coachless.itemCalls)
-	}
-	if !hasItemCall(coachless.itemCalls, 3, []int{1}, true) {
-		t.Fatalf("missing support-first-item query in %+v", coachless.itemCalls)
-	}
-	if !hasItemCall(coachless.itemCalls, 1, []int{2}, false) {
-		t.Fatalf("missing 2nd-item query in %+v", coachless.itemCalls)
-	}
-	if !hasItemCall(coachless.itemCalls, 2, nil, false) {
-		t.Fatalf("missing boots query in %+v", coachless.itemCalls)
-	}
-	if !hasItemCall(coachless.itemCalls, 1, []int{3}, false) {
-		t.Fatalf("missing 3rd-item query in %+v", coachless.itemCalls)
-	}
-	if !hasItemCall(coachless.itemCalls, 1, []int{4, 5, 6}, false) {
-		t.Fatalf("missing 4th+-item query in %+v", coachless.itemCalls)
-	}
-}
-
-func TestSyncAllowsUnlimitedItemsPerBlock(t *testing.T) {
-	t.Parallel()
-
-	coachless := &coachlessStub{
-		itemStats: []domain.ItemStat{
-			{ItemID: 1055, WPAOverall: 0.9, Occurrence: 2000},
-			{ItemID: 3006, WPAOverall: 0.8, Occurrence: 2000},
-			{ItemID: 3031, WPAOverall: 0.7, Occurrence: 2000},
-			{ItemID: 2021, WPAOverall: 0.3, Occurrence: 2000},
-			{ItemID: 1051, WPAOverall: 0.5, Occurrence: 2000},
-			{ItemID: 4032, WPAOverall: 0.4, Occurrence: 2000},
-			{ItemID: 5004, WPAOverall: 0.6, Occurrence: 2000},
-		},
-	}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID:   235,
-			Position:     domain.ADC,
-			QueueID:      420,
-			IsAutofilled: false,
-		},
-	}
-
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 1000, TopItems: 0, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
-	got, err := svc.Sync(context.Background(), SyncRequest{
-		ApplyItems: true,
-		DryRun:     false,
-	})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-	if !got.ItemSetApplied {
-		t.Fatalf("expected item set to be applied, got %#v", got)
-	}
-	if len(lcu.itemSetCalls) != 1 {
-		t.Fatalf("expected one item set apply call, got %d", len(lcu.itemSetCalls))
-	}
-
-	for idx, block := range lcu.itemSetCalls[0].Blocks {
-		if len(block.ItemIDs) != 7 {
-			t.Fatalf("expected unlimited block items at index %d, got %#v", idx, block.ItemIDs)
-		}
-	}
-}
-
-func TestSyncFallsBackToRawItemsWhenOccurrenceFilterWouldEmptyBlock(t *testing.T) {
-	t.Parallel()
-
-	coachless := &coachlessStub{
-		itemStats: []domain.ItemStat{
-			{ItemID: 3142, WPAOverall: 1.2, Occurrence: 100},
-			{ItemID: 3087, WPAOverall: 0.9, Occurrence: 200},
-		},
-	}
-	lcu := &lcuStub{
-		detectedSelection: domain.DetectedSelection{
-			ChampionID:   235,
-			Position:     domain.ADC,
-			QueueID:      420,
-			IsAutofilled: false,
-		},
-	}
-
-	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 1000, TopItems: 0, TopSpells: 2},
-	})
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
-	got, err := svc.Sync(context.Background(), SyncRequest{
-		ApplyItems: true,
-		DryRun:     false,
-	})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-	if !got.ItemSetApplied {
-		t.Fatalf("expected item set to be applied, got %#v", got)
-	}
-
-	for idx, block := range lcu.itemSetCalls[0].Blocks {
-		if len(block.ItemIDs) != 2 || block.ItemIDs[0] != 3142 || block.ItemIDs[1] != 3087 {
-			t.Fatalf("expected raw fallback items at index %d, got %#v", idx, block.ItemIDs)
-		}
+	if !slices.Equal(gotFilters.MatchupChampionIDs, []int{10, 20, 30, 40, 60}) {
+		t.Fatalf("matchups = %#v, want filtered roster order", gotFilters.MatchupChampionIDs)
 	}
 }
 
@@ -799,32 +548,4 @@ func TestNormalizeCoachlessRegions(t *testing.T) {
 			}
 		})
 	}
-}
-
-func hasItemCall(calls []domain.ItemStatsRequest, itemType int, itemSlots []int, includeSupportItems bool) bool {
-	return slices.ContainsFunc(calls, func(call domain.ItemStatsRequest) bool {
-		return call.ItemType == itemType &&
-			slices.Equal(call.ItemSlots, itemSlots) &&
-			call.IncludeSupportItems == includeSupportItems
-	})
-}
-
-func assertMatchups(t *testing.T, filters domain.CommonFilters, want []int) {
-	t.Helper()
-
-	if slices.Equal(filters.MatchupChampionIDs, want) {
-		return
-	}
-
-	t.Fatalf("MatchupChampionIDs = %+v, want %+v", filters.MatchupChampionIDs, want)
-}
-
-func assertMatchupsFor(t *testing.T, filters domain.CommonFilters, want []int, label string) {
-	t.Helper()
-
-	if slices.Equal(filters.MatchupChampionIDs, want) {
-		return
-	}
-
-	t.Fatalf("%s MatchupChampionIDs = %+v, want %+v", label, filters.MatchupChampionIDs, want)
 }

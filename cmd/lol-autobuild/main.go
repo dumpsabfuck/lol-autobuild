@@ -18,7 +18,6 @@ import (
 	"github.com/controlado/lol-autobuild/internal/auth"
 	"github.com/controlado/lol-autobuild/internal/autobuild"
 	"github.com/controlado/lol-autobuild/internal/autobuild/domain"
-	"github.com/controlado/lol-autobuild/internal/autobuild/recommend"
 	"github.com/controlado/lol-autobuild/internal/buildinfo"
 	"github.com/controlado/lol-autobuild/internal/coachless"
 	"github.com/controlado/lol-autobuild/internal/config"
@@ -358,15 +357,9 @@ func buildService(cfg config.Config) (autobuild.Service, error) {
 	)
 
 	return autobuild.NewService(autobuild.ServiceDeps{
-		Coachless:   coachlessClient,
-		Tokens:      provider,
-		LCU:         lcuClient,
-		Recommender: recommend.NewEngine(),
-		Policy: autobuild.RecommendationPolicy{
-			MinOccurrence: cfg.Recommendation.MinOccurrence,
-			TopItems:      cfg.Recommendation.TopItems,
-			TopSpells:     cfg.Recommendation.TopSpells,
-		},
+		Coachless: coachlessClient,
+		Tokens:    provider,
+		LCU:       lcuClient,
 	})
 }
 

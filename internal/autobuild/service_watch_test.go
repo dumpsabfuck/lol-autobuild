@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/controlado/lol-autobuild/internal/autobuild/domain"
-	"github.com/controlado/lol-autobuild/internal/autobuild/recommend"
 )
 
 func TestWatchDoesNotRunStartupSyncAndStopsGracefully(t *testing.T) {
@@ -472,11 +471,9 @@ func TestWatchReadsSelectedMatchupsAtCycleTime(t *testing.T) {
 	lcu.detectedSelection.EnemyChampions = []domain.ChampionRef{{ID: 22}, {ID: 99}}
 	coachless := &coachlessStub{}
 	svc, err := NewService(ServiceDeps{
-		Coachless:   coachless,
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
+		Coachless: coachless,
+		Tokens:    tokenProviderStub{token: "t"},
+		LCU:       lcu,
 	})
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
@@ -502,11 +499,11 @@ func TestWatchReadsSelectedMatchupsAtCycleTime(t *testing.T) {
 	waitForCondition(t, func() bool {
 		coachless.mu.Lock()
 		defer coachless.mu.Unlock()
-		return len(coachless.keystoneCalls) == 1
-	}, "coachless keystone call")
+		return coachless.buildsReq != nil
+	}, "coachless builds call")
 
 	coachless.mu.Lock()
-	got := slices.Clone(coachless.keystoneCalls[0].CommonFilters.MatchupChampionIDs)
+	got := slices.Clone(coachless.buildsReq.CommonFilters.MatchupChampionIDs)
 	coachless.mu.Unlock()
 	if len(got) != 1 || got[0] != 99 {
 		t.Fatalf("MatchupChampionIDs = %+v, want [99]", got)
@@ -542,11 +539,9 @@ func newWatchTestService(t *testing.T, lcu *lcuStub) Service {
 	t.Helper()
 
 	svc, err := NewService(ServiceDeps{
-		Coachless:   &coachlessStub{},
-		Tokens:      tokenProviderStub{token: "t"},
-		LCU:         lcu,
-		Recommender: recommend.NewEngine(),
-		Policy:      RecommendationPolicy{MinOccurrence: 100, TopItems: 6, TopSpells: 2},
+		Coachless: &coachlessStub{},
+		Tokens:    tokenProviderStub{token: "t"},
+		LCU:       lcu,
 	})
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)

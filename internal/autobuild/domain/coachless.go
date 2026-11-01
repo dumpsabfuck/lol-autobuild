@@ -21,83 +21,49 @@ type CommonFilters struct {
 	Role               int
 }
 
-type KeystoneStat struct {
-	Rune       int
-	WPAOverall float64
-	Occurrence int
-}
-
-type RuneStat struct {
-	Rune       int
-	WPAOverall float64
-	Occurrence int
-}
-
-type RuneTreePlaycount struct {
-	Tree       int
-	Occurrence float64
-}
-
-type RuneStatsByRow struct {
-	RowOnes   []RuneStat
-	RowTwos   []RuneStat
-	RowThrees []RuneStat
-}
-
-type ShardStats struct {
-	Offense []RuneStat
-	Flex    []RuneStat
-	Defense []RuneStat
-}
-
-type SummonerSpellStat struct {
-	SummonerSpell int
-	WPAOverall    float64
-	Occurrence    int
-}
-
-type ItemStat struct {
-	ItemID     int
-	WPAOverall float64
-	Occurrence int
-}
-
-type KeystoneRequest struct {
+type RecommendedBuildsRequest struct {
 	CommonFilters CommonFilters
 }
 
-type SecondaryTreePlaycountRequest struct {
-	CommonFilters CommonFilters
-	Tree          int
-	Keystone      int
+type RecommendedBuilds struct {
+	Role      int
+	Builds    []RecommendedBuild
+	SpellDuos []SpellDuo
 }
 
-type RuneStatsRequest struct {
-	CommonFilters CommonFilters
-	Keystone      int
-	MainTree      int
-	TreeToLoad    int
+type RecommendedBuild struct {
+	Tier       int
+	Winrate    float64
+	Runes      *BuildRunes
+	ItemBlocks []BuildBlock
 }
 
-type ShardStatsRequest struct {
-	CommonFilters CommonFilters
-	Keystone      int
+type BuildRunes struct {
+	PrimaryTree    int
+	SecondaryTree  int
+	SelectedRunes  []int
+	SelectedShards []int
 }
 
-type SummonerSpellStatsRequest struct {
-	CommonFilters CommonFilters
-	PairedSpell   *int
+// Build block types as sent by coachless GetRecommendedBuilds.
+const (
+	BlockStarter     = 0
+	BlockEarly       = 1
+	BlockCore        = 2
+	BlockThirdOption = 3
+	BlockLategame    = 4
+)
+
+type BuildBlock struct {
+	Type  int
+	Items []BuildBlockItem
 }
 
-type ItemStatsRequest struct {
-	CommonFilters         CommonFilters
-	ItemSlots             []int
-	ItemType              int
-	Keystone              *int
-	StarterID             *int
-	FirstPurchaseID       *int
-	FirstLegendaryID      *int
-	SecondLegendaryID     *int
-	LoadFirstEpicPurchase bool
-	IncludeSupportItems   bool
+type BuildBlockItem struct {
+	ItemID    int
+	ChooseOne bool
+}
+
+type SpellDuo struct {
+	SpellIDs []int
 }

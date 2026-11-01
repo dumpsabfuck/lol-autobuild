@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/controlado/lol-autobuild/internal/autobuild/domain"
-	"github.com/controlado/lol-autobuild/internal/autobuild/runes"
 )
 
 const (
@@ -140,10 +139,10 @@ func validateRunePageApplyRequest(req domain.ApplyRunePageRequest) (runePageCrea
 	if !req.Position.IsValid() {
 		return runePageCreateRequest{}, fmt.Errorf("%w: invalid position %q", ErrInvalidRunePageRequest, req.Position)
 	}
-	if !runes.IsStyle(req.Page.PrimaryStyleID) {
+	if !domain.IsStyle(req.Page.PrimaryStyleID) {
 		return runePageCreateRequest{}, fmt.Errorf("%w: invalid primaryStyleID %d", ErrInvalidRunePageRequest, req.Page.PrimaryStyleID)
 	}
-	if !runes.IsStyle(req.Page.SubStyleID) {
+	if !domain.IsStyle(req.Page.SubStyleID) {
 		return runePageCreateRequest{}, fmt.Errorf("%w: invalid subStyleID %d", ErrInvalidRunePageRequest, req.Page.SubStyleID)
 	}
 	if req.Page.PrimaryStyleID == req.Page.SubStyleID {

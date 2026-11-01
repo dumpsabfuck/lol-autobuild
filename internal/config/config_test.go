@@ -27,10 +27,6 @@ auth:
   token_skew_seconds: 20
 secrets:
   service_name: lol-autobuild
-recommendation:
-  min_occurrence: 50
-  top_items: 5
-  top_spells: 2
 lcu:
   enabled: false
 sync:
@@ -65,10 +61,6 @@ env_file:
 
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("unexpected log level: %s", cfg.LogLevel)
-	}
-
-	if cfg.Recommendation.TopItems != 5 {
-		t.Fatalf("unexpected top items: %d", cfg.Recommendation.TopItems)
 	}
 
 	if cfg.EnvFile.Path != ".env.local" {
@@ -107,10 +99,6 @@ auth:
   token_skew_seconds: 20
 secrets:
   service_name: lol-autobuild
-recommendation:
-  min_occurrence: 50
-  top_items: 5
-  top_spells: 2
 lcu:
   enabled: false
 `
@@ -141,15 +129,6 @@ lcu:
 	}
 	if !cfg.Sync.ApplyItems || !cfg.Sync.ApplyRunes || !cfg.Sync.ApplySpells || !cfg.Sync.KeepFlash || cfg.Sync.DryRun {
 		t.Fatalf("unexpected sync defaults: %#v", cfg.Sync)
-	}
-}
-
-func TestDefaultsUseTenTopItems(t *testing.T) {
-	t.Parallel()
-
-	cfg := Defaults()
-	if cfg.Recommendation.TopItems != 10 {
-		t.Fatalf("recommendation.top_items default = %d, want 10", cfg.Recommendation.TopItems)
 	}
 }
 
@@ -213,10 +192,6 @@ auth:
   token_skew_seconds: 20
 secrets:
   service_name: lol-autobuild
-recommendation:
-  min_occurrence: 50
-  top_items: 5
-  top_spells: 2
 lcu:
   enabled: false
 `,
@@ -236,10 +211,6 @@ env_file:
   path: ""
 secrets:
   service_name: lol-autobuild
-recommendation:
-  min_occurrence: 50
-  top_items: 5
-  top_spells: 2
 lcu:
   enabled: false
 `,
@@ -274,8 +245,6 @@ func TestValidateFailsOnInvalidConfig(t *testing.T) {
 
 	cfg := Defaults()
 	cfg.Coachless.APIBaseURL = ""
-	cfg.Recommendation.TopItems = -1
-	cfg.Recommendation.TopSpells = 0
 
 	err := cfg.Validate()
 	if err == nil {
@@ -285,14 +254,6 @@ func TestValidateFailsOnInvalidConfig(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "coachless.api_base_url") {
 		t.Fatalf("expected base url error, got: %s", msg)
-	}
-
-	if !strings.Contains(msg, "recommendation.top_spells") {
-		t.Fatalf("expected top_spells error, got: %s", msg)
-	}
-
-	if !strings.Contains(msg, "recommendation.top_items") {
-		t.Fatalf("expected top_items error, got: %s", msg)
 	}
 }
 

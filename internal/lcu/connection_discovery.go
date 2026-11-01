@@ -76,45 +76,45 @@ func (c *Client) connectionCandidates(ctx context.Context) []connectionCandidate
 	return out
 }
 
+// processCandidates returns the static args-based candidate when the command
+// line parses, and always adds the process' own lockfile candidate when the
+// executable path is readable: gopsutil can return a garbled command line
+// (e.g. the caller's own args) on some Windows setups, which must not hide
+// the lockfile fallback.
+func processCandidates(pid int32, args []string, exePath string, exeErr error) []connectionCandidate {
+	var out []connectionCandidate
+	source := fmt.Sprintf("process:%d", pid)
+
+	if info, err := parseProcessArgs(args); err == nil {
+		out = append(out, staticCandidate(source, info))
+	}
+	if exeErr == nil {
+		if candidate, ok := processLockfileCandidate(source, exePath); ok {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
 func discoverProcessConnections(ctx context.Context) []connectionCandidate {
 	processes, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil
 	}
 
-	seen := make(map[string]struct{})
-	out := make([]connectionCandidate, 0, len(processes)*2)
+	out := make([]connectionCandidate, 0, len(processes))
 	for _, proc := range processes {
 		if proc == nil {
 			continue
 		}
 
-		args, err := proc.CmdlineSliceWithContext(ctx)
-		if err != nil {
+		args, argsErr := proc.CmdlineSliceWithContext(ctx)
+		exePath, exeErr := proc.ExeWithContext(ctx)
+		if argsErr != nil && exeErr != nil {
 			continue
 		}
 
-		info, err := parseProcessArgs(args)
-		if err != nil {
-			continue
-		}
-
-		connectionKey := fmt.Sprintf("%s:%d:%s", info.Protocol, info.Port, info.Password)
-		if _, ok := seen[connectionKey]; ok {
-			continue
-		}
-		seen[connectionKey] = struct{}{}
-
-		source := fmt.Sprintf("process:%d", proc.Pid)
-		out = append(out, staticCandidate(source, info))
-
-		exePath, err := proc.ExeWithContext(ctx)
-		if err != nil {
-			continue
-		}
-		if candidate, ok := processLockfileCandidate(source, exePath); ok {
-			out = append(out, candidate)
-		}
+		out = append(out, processCandidates(proc.Pid, args, exePath, exeErr)...)
 	}
 
 	return out
